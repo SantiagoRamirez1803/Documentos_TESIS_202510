@@ -83,8 +83,10 @@ def mes_a_numero(mes):
     return numero
 
 data_bogota['MES'] = data_bogota['MES'].apply(mes_a_numero)
+# Remove specific columns from data_bogota
+columns_to_remove = ['Departamento', 'Profesión', 'Código DANE', 'DESCRIPCION_CONDUCTA']
+data_bogota = data_bogota.drop(columns=columns_to_remove)
 #data_bogota['MES'].value_counts() #Verificar el cambio de tipo de dato
-
 # ------------------------CAMBIOS DE TIPO DE DATOS (1:fin)--------------------------)
 
 
