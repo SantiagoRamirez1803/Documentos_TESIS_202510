@@ -149,13 +149,18 @@ for barrio in barrios_json:
         
         # Verificar si el campo 'geometry' existe y no es None
         if geo_shape.get('geometry') is not None:
+            # Asignar "Suba" a los valores desconocidos
+            localidad_nombre = barrio.get('localidad', 'DESCONOCIDO')
+            if localidad_nombre == 'DESCONOCIDO':
+                localidad_nombre = 'SUBA'
+
             # Crear un GeoJSON temporal para cada barrio
             geojson_feature = {
                 "type": "Feature",
                 "geometry": geo_shape['geometry'],
                 "properties": {
                     "barrio": barrio.get('barriocomu', 'Desconocido'),
-                    "localidad": barrio.get('localidad', 'Desconocido'),
+                    "localidad": localidad_nombre,
                     "estado": barrio.get('estado', 'Desconocido')
                 }
             }
@@ -174,6 +179,8 @@ mapa_bogota.save('mapa_bogota.html')
 
 # Crear un DataFrame a partir del JSON
 df_barrios = pd.DataFrame(barrios_json)
+df_barrios['localidad'] = (df_barrios['localidad']
+                           .replace('DESCONOCIDO', 'SUBA'))
 df_barrios.head()
 
 
@@ -203,19 +210,26 @@ with open('barrios_prueba.json', 'r', encoding='utf-8') as f:
 # Crear el mapa y agregar los barrios (sin modificar nada más)
 mapa_bogota = folium.Map(location=[4.7110, -74.0721], zoom_start=12)
 
+# Añadir cada barrio al mapa
 for barrio in barrios_json:
+    # Verificar si el campo 'geo_shape' existe y no es None
     if barrio.get('geo_shape') is not None:
         geo_shape = barrio['geo_shape']
+        
+        # Verificar si el campo 'geometry' existe y no es None
         if geo_shape.get('geometry') is not None:
+            # Crear un GeoJSON temporal para cada barrio
             geojson_feature = {
                 "type": "Feature",
                 "geometry": geo_shape['geometry'],
                 "properties": {
-                    "barrio": barrio.get('barriocomu', 'Desconocido'),  # Ahora usa los nombres corregidos
+                    "barrio": barrio.get('barriocomu', 'Desconocido'),
                     "localidad": barrio.get('localidad', 'Desconocido'),
                     "estado": barrio.get('estado', 'Desconocido')
                 }
             }
+
+            # Añadir el GeoJSON al mapa
             folium.GeoJson(
                 geojson_feature,
                 name=f"Barrio: {barrio.get('barriocomu', 'Desconocido')}",
@@ -273,8 +287,8 @@ localidades_dict = {
     "14": "LOS MÁRTIRES",
     "15": "ANTONIO NARIÑO",
     "16": "PUENTE ARANDA",
-    "17": "LA CANDELARIA",
-    "18": "RAFAEL URIBE URIBE",
+    "17": "CANDELARIA",
+    "18": "RAFAEL URIBE",
     "19": "CIUDAD BOLÍVAR",
     "20": "SUMAPAZ"
 }
@@ -285,11 +299,16 @@ data_bogota['Localidad'] = data_bogota['Localidad'].map(localidades_dict).fillna
 barrios_unicos_hurto = data_bogota.groupby(['Barrio', 'Localidad']).size().reset_index(name='Cantidad')
 barrios_unicos_hurto["Barrio"].head()
 barrios_unicos["Barrio"].head()
+# Crear una nueva columna combinada en ambos DataFrames:
+barrios_unicos['Barrio_Localidad'] = barrios_unicos['Barrio'].str.strip() + "-" + barrios_unicos['Localidad'].str.strip()
+barrios_unicos_hurto['Barrio_Localidad'] = barrios_unicos_hurto['Barrio'].str.strip() + "-" + barrios_unicos_hurto['Localidad'].str.strip()
+barrios_unicos_hurto["Barrio_Localidad"].head()
+barrios_unicos["Barrio_Localidad"].head()
 # identificar todas las categorías
-nombre_barrios_labUrbano=list(barrios_unicos['Barrio'])
+nombre_barrios_labUrbano=list(barrios_unicos['Barrio_Localidad'].unique())
 len(nombre_barrios_labUrbano)
 
-nombre_barrios_hurto=list(barrios_unicos_hurto['Barrio'])
+nombre_barrios_hurto=list(barrios_unicos_hurto['Barrio_Localidad'].unique())
 len(nombre_barrios_hurto)
 
 # crear cruce de las categorías
@@ -315,17 +334,147 @@ for i in range(len(matriz_leven)):
 #pd.crosstab(matriz_leven['nombre_barrios_labUrb'],matriz_leven['nombre_barrios_hurto'],values=matriz_leven['Levenshtein'], aggfunc='sum')
 
 #Comprobaciones
-promedio_levenshtein=matriz_leven['Levenshtein'].mean()
-minimo_levenshtein=matriz_leven['Levenshtein'].min()
 cantidad_ceros=(matriz_leven['Levenshtein']==0).sum()
 cantidad_numeros_bajos=(matriz_leven['Levenshtein']<=1).sum()
 
-
+data_bogota["Barrio_Localidad"] = data_bogota["Barrio"] + "-" + data_bogota["Localidad"]
 # Crear un subconjunto con los barrios que están en ambas bases
-barrios_coincidentes = set(barrios_unicos["Barrio"]).intersection(set(barrios_unicos_hurto["Barrio"]))
+barrios_coincidentes = set(barrios_unicos["Barrio_Localidad"]).intersection(set(barrios_unicos_hurto["Barrio_Localidad"]))
 
 # Filtrar los datos de hurto para que solo contengan barrios que están en el mapa
-data_bogota_filtrado = data_bogota[data_bogota['Barrio'].isin(barrios_coincidentes)]
+data_bogota_filtrado = data_bogota[data_bogota['Barrio_Localidad'].isin(barrios_coincidentes)]
+
+# --------------------------------PROCESO DE RECUPERACIÓN DE DATOS (PARETO) PARA NO PERDER TANTOS----------------------------------
+# Obtener los barrios únicos de la base de hurtos (labUrbano ya se encuentra en barrios_unicos_hurto)
+barrios_hurto_set = set(barrios_unicos_hurto["Barrio_Localidad"])
+# Obtener los barrios que sí están en data_bogota_filtrado
+barrios_filtrados_set = set(data_bogota_filtrado["Barrio_Localidad"].unique())
+
+# Los barrios perdidos son aquellos que están en hurtos pero no en el DataFrame filtrado
+barrios_no_coincidentes_set = barrios_hurto_set - barrios_filtrados_set
+
+# Filtrar la base de hurtos para los barrios perdidos
+barrios_no_coincidentes_hurto = barrios_unicos_hurto[~barrios_unicos_hurto['Barrio_Localidad'].isin(data_bogota_filtrado['Barrio_Localidad'])]
+
+# Ordenar de mayor a menor cantidad de robos
+barrios_no_coincidentes_hurto = barrios_no_coincidentes_hurto.sort_values(by="Cantidad", ascending=False)
+
+# Seleccionar los top 150 barrios
+top150_no_coincidentes = barrios_no_coincidentes_hurto.head(150)
+
+# Crear una lista con los nombres de los barrios perdidos seleccionados
+top150_no_coincidentes_list = top150_no_coincidentes['Barrio_Localidad'].tolist()
+
+# Filtrar la matriz de Levenshtein para que solo incluya filas en que el barrio de la base de hurtos esté en el top 150 de los perdidos
+matriz_no_coincidentes = matriz_leven[matriz_leven['nombre_barrios_hurto'].isin(top150_no_coincidentes_list)].copy()
+# Ordenar la matriz (opcional, para tener un orden visual)
+matriz_no_coincidentes = matriz_no_coincidentes.sort_values(by='Levenshtein', ascending=True)
+
+# Para cada 'nombre_barrios_hurto', obtener la fila con menor distancia de Levenshtein
+mejor_coincidencia_no_coincidentes = matriz_no_coincidentes.loc[
+    matriz_no_coincidentes.groupby('nombre_barrios_hurto')['Levenshtein'].idxmin()
+].reset_index(drop=True)
+
+# Excluir aquellas coincidencias exactas (donde la distancia es 0)
+mejor_coincidencia_no_coincidentes = mejor_coincidencia_no_coincidentes[mejor_coincidencia_no_coincidentes['Levenshtein'] > 0]
+# Exportar a CSV para revisión manual
+mejor_coincidencia_no_coincidentes.to_csv("comparacion_top150_no_coincidentes.csv", index=False)
+
+# Diccionario de corrección de nombres de barrios
+correccion_barrios = {
+    "ABRAHAM LINCON-TUNJUELITO": "ABRAHAM LINCOLN-TUNJUELITO",
+    "AEROPUERTO EL DORADO-DESCONOCIDO": "AEROPUERTO EL DORADO-FONTIBÓN",
+    "ALAMEDA-SANTA FE": "LA ALAMEDA-SANTA FE",
+    "ALCAZARES NORTE-BARRIOS UNIDOS": "LOS ALCAZARES NORTE-BARRIOS UNIDOS",
+    "ALHAMBRA SECTOR NORTE-SUBA": "LA ALHAMBRA SECTOR NORTE-SUBA",
+    "ALQUERIAS DE LA FRAGUA-KENNEDY": "ALQUERIA DE LA FRAGUA-KENNEDY",
+    "ANTIGUO COUNTRY CLUB-CHAPINERO": "ANTIGUO COUNTRY-CHAPINERO",
+    "CASABLANCA-KENNEDY": "CASABLANCA I-KENNEDY",
+    "CEDRITOS LOS CAOBOS-USAQUÉN": "LOS CAOBOS-USAQUÉN",
+    "CENTRO ADMINISTRATIVO-LA CANDELARIA": "CENTRO ADMINISTRATIVO-CANDELARIA",
+    "CHAPINERO SUR OCC.-TEUSAQUILLO": "CHAPINERO OCCIDENTAL-TEUSAQUILLO",
+    "CHAPINERO SUR OCCIDENTAL-TEUSAQUILLO": "CHAPINERO OCCIDENTAL-TEUSAQUILLO",
+    "CIUDAD JARDIN SUR-ANTONIO NARIÑO": "CIUDAD JARDIN DEL SUR-ANTONIO NARIÑO",
+    "CIUDAD JARDIN-SUBA": "CIUDAD JARDIN NORTE-SUBA",
+    "CLARET-RAFAEL URIBE URIBE": "CLARET-RAFAEL URIBE",
+    "DIANA TURBAY-RAFAEL URIBE URIBE": "DIANA TURBAY-RAFAEL URIBE",
+    "DOCE DE OCTUBRE-BARRIOS UNIDOS": "12 DE OCTUBRE-BARRIOS UNIDOS",
+    "EL CAMPIN (ESTADIO)-TEUSAQUILLO": "EL CAMPIN-TEUSAQUILLO",
+    "EL ESPARTILLAL-CHAPINERO": "ESPARTILLAL-CHAPINERO",
+    "EL MUELLE-ENGATIVÁ": "EL MUELLE I-ENGATIVÁ",
+    "EL PINAR DE SUBA II SECTOR-SUBA": "EL PINAR DE SUBA II-SUBA",
+    "EL REMANSO-PUENTE ARANDA": "REMANSO-PUENTE ARANDA",
+    "EL RESTREPO-ANTONIO NARIÑO": "RESTREPO-ANTONIO NARIÑO",
+    "EL RINCON DE SUBA-SUBA": "RINCON DE SUBA-SUBA",
+    "EL TEJAR-PUENTE ARANDA": "TEJAR-PUENTE ARANDA",
+    "FERIAS-ENGATIVÁ": "LAS FERIAS-ENGATIVÁ",
+    "INDUSTRIAL PUENTE ARANDA-PUENTE ARANDA": "INDUSTRIAL CENTENARIO-PUENTE ARANDA",
+    "JIMENEZ DE QUEZADA-BOSA":"JIMENEZ DE QUESADA-BOSA",
+    "LA PORCIUNCULA-CHAPINERO":"PORCIUNCULA-CHAPINERO",
+    "LA VERACRUZ-SANTA FE":"VERACRUZ-SANTA FE",
+    "LOS MOLINOS DEL SUR-RAFAEL URIBE":"MOLINOS DEL SUR-RAFAEL URIBE",
+    "MINUTO DE DIOS-ENGATIVÁ":"EL MINUTO DE DIOS-ENGATIVÁ",
+    "ONCE DE NOVIEMBRE-BARRIOS UNIDOS":"11 DE NOVIEMBRE-BARRIOS UNIDOS",
+    "PATIO BONITO I-KENNEDY":"PATIO BONITO I SECTOR-KENNEDY",
+    "ROSALES-CHAPINERO":"LOS ROSALES-CHAPINERO",
+    "SAN BLAS-SAN CRISTÓBAL":"SAN BLASS-SAN CRISTÓBAL",
+    "SAN CRISTOBAL-SAN CRISTÓBAL":"SAN CRISTOBAL SUR-SAN CRISTÓBAL",
+    "SOCIEGO SUR-RAFAEL URIBE":"SOSIEGO SUR-RAFAEL URIBE",
+    "URB. TOBERIN-USAQUÉN":"TOBERIN-USAQUÉN",
+    "VEINTE DE JULIO-SAN CRISTÓBAL":"20 DE JULIO-SAN CRISTÓBAL",
+    "VILLA LUZ-ENGATIVÁ":"VILLALUZ-ENGATIVÁ",
+    "ZONA INDUSTRIAL MONTEVIDEO-FONTIBÓN":"URB. INDUSTRIAL MONTEVIDEO-FONTIBÓN"
+}
+
+# Aplicar las correcciones de nombres en la base de datos de hurtos
+data_bogota['Barrio_Localidad'] = data_bogota['Barrio_Localidad'].replace(correccion_barrios)
+# Calcular los barrios coincidentes actualizados
+barrios_coincidentes_actualizados = set(data_bogota["Barrio_Localidad"]).intersection(set(barrios_unicos["Barrio_Localidad"]))
+data_bogota_filtrado= data_bogota[data_bogota["Barrio_Localidad"].isin(barrios_coincidentes_actualizados)]
+# ------------------------------------- FIN PROCESO DE RECUPERACIÓN--------------------------------------------------------
+
+# ------------------------------------- PARETO DE BARRIOS PERDIDOS--------------------------------------------------------
+# Total de robos (en todas las categorías: coincidentes y no coincidentes)
+total_robos = barrios_unicos_hurto["Cantidad"].sum()
+print("Total de robos:", total_robos)
+# Calcular el porcentaje que representa cada barrio del total de robos
+top150_no_coincidentes["Porcentaje"] = top150_no_coincidentes["Cantidad"] / total_robos * 100
+
+# Calcular el porcentaje acumulado (ordenados de mayor a menor cantidad)
+top150_no_coincidentes = top150_no_coincidentes.sort_values(by="Cantidad", ascending=False)
+top150_no_coincidentes["Porcentaje_acumulado"] = top150_no_coincidentes["Porcentaje"].cumsum()
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+plt.figure(figsize=(12,6))
+ax1 = plt.gca()
+
+# Gráfico de barras para la cantidad de robos por barrio no coincidente
+sns.barplot(data=top150_no_coincidentes, x="Barrio_Localidad", y="Cantidad", color="C0", ax=ax1)
+ax1.set_xlabel("Barrio - Localidad")
+ax1.set_ylabel("Número de Robos", color="C0")
+ax1.tick_params(axis="x", rotation=90)
+ax1.tick_params(axis="y", labelcolor="C0")
+
+# Eje secundario para el porcentaje acumulado
+ax2 = ax1.twinx()
+ax2.plot(top150_no_coincidentes["Barrio_Localidad"], top150_no_coincidentes["Porcentaje_acumulado"],
+         color="C1", marker="D", ms=7)
+ax2.set_ylabel("Porcentaje Acumulado (%)", color="C1")
+ax2.tick_params(axis="y", labelcolor="C1")
+
+# Línea horizontal de referencia al 80% (u otro umbral)
+ax2.axhline(80, color="gray", linestyle="--", linewidth=1)
+
+plt.title("Análisis de Pareto: Robos en Barrios No Coincidentes (Top 150) sobre Total de Robos")
+plt.tight_layout()
+plt.show()
+#------------------------------------ FIN PARETO ---------------------------------------
+
+data_bogota_filtrado.drop(columns=["Municipio"])
+
+
 
 # Agrupar hurtos por barrio y localidad
 hurtos_por_barrio = data_bogota_filtrado.groupby(['Barrio', 'Localidad']).size().reset_index(name='Cantidad')
