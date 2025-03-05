@@ -430,6 +430,7 @@ correccion_barrios = {
 data_bogota['Barrio_Localidad'] = data_bogota['Barrio_Localidad'].replace(correccion_barrios)
 # Calcular los barrios coincidentes actualizados
 barrios_coincidentes_actualizados = set(data_bogota["Barrio_Localidad"]).intersection(set(barrios_unicos["Barrio_Localidad"]))
+
 data_bogota_filtrado= data_bogota[data_bogota["Barrio_Localidad"].isin(barrios_coincidentes_actualizados)]
 # ------------------------------------- FIN PROCESO DE RECUPERACIÓN--------------------------------------------------------
 
@@ -471,54 +472,18 @@ plt.title("Análisis de Pareto: Robos en Barrios No Coincidentes (Top 150) sobre
 plt.tight_layout()
 plt.show()
 #------------------------------------ FIN PARETO ---------------------------------------
-
 data_bogota_filtrado.drop(columns=["Municipio"])
 
+data_hurtos_por_barrio = data_bogota_filtrado.groupby(['Barrio_Localidad']).size().reset_index(name='Cantidad')
 
+# Crear columna combinada para el cruce
+df_barrios["Barrio_Localidad"] = df_barrios["barriocomu"] + "-" + df_barrios["localidad"]
+# Extraer las coordenadas de los polígonos
+df_barrios["Coordenadas"] = df_barrios["geo_shape"].apply(lambda x: x["geometry"]["coordinates"] if x and "geometry" in x else None)
+# Eliminar duplicados en df_barrios, conservando solo una fila por barrio-localidad
+df_barrios = df_barrios.drop_duplicates(subset=["Barrio_Localidad"])
 
-# Agrupar hurtos por barrio y localidad
-hurtos_por_barrio = data_bogota_filtrado.groupby(['Barrio', 'Localidad']).size().reset_index(name='Cantidad')
-
-# Crear un mapa centrado en Bogotá
-mapa_hurtos = folium.Map(location=[4.7110, -74.0721], zoom_start=12)
-
-# Diccionario para acceder rápido a los datos de hurtos
-dict_hurtos = hurtos_por_barrio.set_index('Barrio')['Cantidad'].to_dict()
-
-# Cargar el JSON actualizado con los barrios
-with open('barrios_prueba.json', 'r', encoding='utf-8') as f:
-    barrios_json = json.load(f)
-
-# Función para determinar el color según la cantidad de hurtos
-def color_por_hurtos(cantidad):
-    if cantidad is None:
-        return "gray"  # Barrios sin información
-    elif cantidad < 50:
-        return "green"
-    elif cantidad < 200:
-        return "orange"
-    else:
-        return "red"
-
-# Agregar barrios al mapa con color según la cantidad de hurtos
-for barrio in barrios_json:
-    if barrio.get('geo_shape') and barrio['geo_shape'].get('geometry'):
-        nombre_barrio = barrio.get('barriocomu', 'Desconocido').upper()
-        cantidad_hurtos = dict_hurtos.get(nombre_barrio, None)  # Obtener cantidad de hurtos
-
-        # Crear GeoJSON
-        folium.GeoJson(
-            barrio['geo_shape']['geometry'],
-            name=f"Barrio: {nombre_barrio}",
-            tooltip=f"{nombre_barrio} ({barrio.get('localidad', 'Desconocido')})<br> Hurtos: {cantidad_hurtos if cantidad_hurtos else 'No disponible'}",
-            style_function=lambda x, cant=cantidad_hurtos: {
-                "fillColor": color_por_hurtos(cant),
-                "color": "black",
-                "weight": 1,
-                "fillOpacity": 0.6
-            }
-        ).add_to(mapa_hurtos)
-
-# Guardar el mapa
-mapa_hurtos.save("mapa_hurtos.html")
+# Unir DataFrames para obtener las coordenadas solo de los barrios presentes en los robos
+data_hurtos_por_barrio = pd.merge(data_hurtos_por_barrio, df_barrios[["Barrio_Localidad", "Coordenadas"]], on="Barrio_Localidad", how="left")
+data_hurtos_por_barrio.to_csv("HURTOS POR BARRIO 2022.csv", index=False)
 #FIN DEL CÓDIGO
