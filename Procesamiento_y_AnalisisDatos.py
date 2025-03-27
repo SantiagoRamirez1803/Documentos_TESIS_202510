@@ -21,6 +21,10 @@ print(data_bogota.dtypes)
 
 # conteos de una variable categórica para identificar anomalías (CONSISTENCIA)
 data_bogota['Barrio'].value_counts()
+
+# Eliminar filas donde Barrio sea "-" o esté vacío
+data_bogota = data_bogota[~data_bogota["Barrio"].str.strip().isin(["", "-","NA"])]
+
 # estadísticas básicas de una variable categórica
 data_bogota['Barrio'].describe()
 
@@ -269,7 +273,7 @@ import itertools
 data_bogota['Localidad'] = data_bogota['Barrio'].str.extract(r'E-(\d{1,2})$', expand=True)  # Extrae el número
 data_bogota['Barrio'] = data_bogota['Barrio'].str.replace(r'\s*E-\d{1,2}$', '', regex=True).str.strip()  # Quita el código del barrio
 
-# Diccionario de localidades según el código E- (puedes ajustarlo si tienes más localidades)
+# Diccionario de localidades según el código E-
 localidades_dict = {
     "1": "USAQUÉN",
     "2": "CHAPINERO",
@@ -472,9 +476,22 @@ plt.title("Análisis de Pareto: Robos en Barrios No Coincidentes (Top 150) sobre
 plt.tight_layout()
 plt.show()
 #------------------------------------ FIN PARETO ---------------------------------------
-data_bogota_filtrado.drop(columns=["Municipio"])
+data_bogota_filtrado=data_bogota_filtrado.drop(columns=['Municipio', "Hora", "Barrio", "Fecha", "Estado civil", "Clase de empleado", "Escolaridad"])
+
+## -- CANTIDAD HURTOS POR BARRIO Y POR DÍA DE LA SEMANA --
+# Crear columnas dummy para cada día de la semana
+dias_dummies = pd.get_dummies(data_bogota_filtrado['Día'])
+# Agregar la columna de Barrio_Localidad para agrupar
+data_bogota_filtrado_dias = pd.concat([data_bogota_filtrado[['Barrio_Localidad']], dias_dummies], axis=1)
+# Agrupar por Barrio_Localidad y contar hurtos por día de la semana
+data_hurtos_por_dia = data_bogota_filtrado_dias.groupby('Barrio_Localidad').sum().reset_index()
+
 
 data_hurtos_por_barrio = data_bogota_filtrado.groupby(['Barrio_Localidad']).size().reset_index(name='Cantidad')
+# Unir con el dataframe principal de hurtos por barrio
+data_hurtos_por_barrio = pd.merge(data_hurtos_por_barrio, data_hurtos_por_dia, on="Barrio_Localidad", how="left")
+
+
 
 # Crear columna combinada para el cruce
 df_barrios["Barrio_Localidad"] = df_barrios["barriocomu"] + "-" + df_barrios["localidad"]
